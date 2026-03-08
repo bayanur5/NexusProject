@@ -1,0 +1,68 @@
+name: Build AMI and Deploy Terraform
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+
+    env:
+      AWS_REGION: us-east-1
+
+    steps:
+      # Step 1: Checkout NexusProject repo
+      - name: Checkout NexusProject repo
+        uses: actions/checkout@v4
+
+      # Step 2: Configure AWS credentials
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      # Step 3: Install dependencies
+      - name: Install required packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y unzip curl jq software-properties-common python3-software-properties
+
+      # Step 4: Install Packer
+      - name: Install Packer
+        run: |
+          curl -fsSL https://apt.releases.hashicorp.com/gpg | sudo gpg --dearmor -o /usr/share/keyrings/hashicorp-archive-keyring.gpg
+          echo "deb [signed-by=/usr/share/keyrings/hashicorp-archive-keyring.gpg] https://apt.releases.hashicorp.com $(lsb_release -cs) main" | sudo tee /etc/apt/sources.list.d/hashicorp.list
+          sudo apt-get update && sudo apt-get install -y packer
+
+      # Step 5: Build AMI with Packer
+      - name: Build AMI
+        working-directory: ./step3-packer
+        run: |
+          packer init .
+          packer build -force .
+
+      # Step 6: Get the AMI ID from Packer output
+      - name: Get AMI ID
+        id: ami
+        working-directory: ./step3-packer
+        run: |
+          AMI_ID=$(packer inspect -json nexus.pkr.hcl | jq -r '.builds[-1].artifact_id' | cut -d ':' -f2)
+          echo "ami_id=$AMI_ID" >> $GITHUB_ENV
+
+      # Step 7: Setup Terraform
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.7.0
+
+      # Step 8: Apply Terraform
+      - name: Apply Terraform
+        working-directory: ./step4-terraform
+        run: |
+          terraform init
+          terraform apply -auto-approve -var="ami_id=${{ env.ami_id }}" -var="region=${{ env.AWS_REGION }}" -var="key_name=my-laptop-key"
