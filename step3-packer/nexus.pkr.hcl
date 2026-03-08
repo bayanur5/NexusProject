@@ -4,10 +4,15 @@ packer {
       source  = "github.com/hashicorp/amazon"
       version = "~> 1.8"
     }
+    ansible = {
+      source  = "github.com/hashicorp/ansible"
+      version = ">= 1.0.0"
+    }
   }
 }
 
 variable "region" {
+  type    = string
   default = "us-east-1"
 }
 
@@ -24,20 +29,18 @@ source "amazon-ebs" "nexus-build" {
       root-device-type    = "ebs"
       virtualization-type = "hvm"
     }
-
     most_recent = true
     owners      = ["099720109477"]
   }
 }
 
 build {
-  name = "nexus-ami-build"
-
-  sources = [
-    "source.amazon-ebs.nexus-build"
-  ]
+  name    = "nexus-ami-build"
+  sources = ["source.amazon-ebs.nexus-build"]
 
   provisioner "ansible" {
+    type          = "ansible-local"
     playbook_file = "../step2-ansible/install_nexus.yml"
+    extra_arguments = ["-v"]
   }
 }
