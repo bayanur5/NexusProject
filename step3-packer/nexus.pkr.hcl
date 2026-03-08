@@ -1,25 +1,35 @@
 packer {
   required_plugins {
     amazon = {
+      version = ">= 1.2.8"
       source  = "github.com/hashicorp/amazon"
-      version = "~> 1.8"
     }
+
     ansible = {
+      version = ">= 1.1.0"
       source  = "github.com/hashicorp/ansible"
-      version = "~> 1.1"
     }
   }
 }
 
-variable "region" {
+variable "aws_region" {
+  type    = string
   default = "us-east-1"
 }
 
+variable "instance_type" {
+  type    = string
+  default = "t2.medium"
+}
+
 source "amazon-ebs" "nexus-build" {
-  region        = var.region
-  instance_type = "t2.medium"
-  ssh_username  = "ubuntu"
-  ami_name      = "nexus-ami-{{timestamp}}"
+
+  region        = var.aws_region
+  instance_type = var.instance_type
+
+  ssh_username = "ubuntu"
+
+  ami_name = "nexus-ami-{{timestamp}}"
 
   source_ami_filter {
     filters = {
@@ -27,16 +37,24 @@ source "amazon-ebs" "nexus-build" {
       root-device-type    = "ebs"
       virtualization-type = "hvm"
     }
-    most_recent = true
+
     owners      = ["099720109477"]
+    most_recent = true
   }
+
 }
 
 build {
+
   name = "nexus-ami-build"
-  sources = ["source.amazon-ebs.nexus-build"]
+
+  sources = [
+    "source.amazon-ebs.nexus-build"
+  ]
 
   provisioner "ansible" {
-    playbook_file = "../step2-ansible/install_nexus.yml"
+    playbook_file = "step2-ansible/install_nexus.yml"
+    user          = "ubuntu"
   }
+
 }
