@@ -1,7 +1,7 @@
-# Automatically get the latest Ubuntu 22.04 LTS AMI in us-east-1
 data "aws_ami" "ubuntu" {
   most_recent = true
-  owners      = ["099720109477"]  # Official Canonical owner
+  owners      = ["099720109477"]
+
   filter {
     name   = "name"
     values = ["ubuntu/images/hvm-ssd/ubuntu-jammy-22.04-amd64-server-*"]
@@ -14,6 +14,10 @@ resource "aws_instance" "nexus" {
   key_name      = var.key_name
 
   tags = {
-    Name = "nexus-instance"
+    Name = "NexusInstance"
   }
+}
+
+output "instance_id" {
+  value = aws_instance.nexus.id
 }
