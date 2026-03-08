@@ -14,9 +14,12 @@ jobs:
       AWS_REGION: us-east-1
 
     steps:
-      # Step 1: Checkout the NexusProject repo
+      # Step 1: Checkout NexusProject repo
       - name: Checkout NexusProject repo
         uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GH_PAT }}
+          path: nexusproject
 
       # Step 2: Configure AWS credentials
       - name: Configure AWS credentials
@@ -26,34 +29,48 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
 
-      # Step 3: Setup Terraform
+      # Step 3: Install prerequisites
+      - name: Install prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y unzip curl jq python3-pip
+          pip3 install ansible
+
+      # Step 4: Run Ansible playbook
+      - name: Run Ansible Playbook
+        working-directory: nexusproject/step2-ansible
+        run: |
+          ansible-playbook -i inventory install_nexus.yml
+
+      # Step 5: Setup Terraform
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
 
-      # Step 4: Install Packer
+      # Step 6: Install Packer
       - name: Install Packer
         run: |
-          curl -fsSL https://apt.releases.hashicorp.com/gpg | sudo gpg --dearmor -o /usr/share/keyrings/hashicorp-archive-keyring.gpg
-          sudo apt-add-repository "deb [signed-by=/usr/share/keyrings/hashicorp-archive-keyring.gpg] https://apt.releases.hashicorp.com $(lsb_release -cs) main"
-          sudo apt-get update && sudo apt-get install packer -y
+          curl -LO https://releases.hashicorp.com/packer/1.9.4/packer_1.9.4_linux_amd64.zip
+          unzip packer_1.9.4_linux_amd64.zip
+          sudo mv packer /usr/local/bin/
+          packer version
 
-      # Step 5: Build AMI with Packer
+      # Step 7: Build AMI with Packer
       - name: Build AMI
-        working-directory: ./step3-packer
+        working-directory: nexusproject/step3-packer
         run: |
-          packer init nexus.pkr.hcl
-          packer build nexus.pkr.hcl
+          packer init .
+          packer build -force -machine-readable .
 
-      # Step 6: Get the AMI ID from Packer output
+      # Step 8: Get the AMI ID from Packer output
       - name: Get AMI ID
         id: ami
         run: |
-          AMI_ID=$(packer inspect -json nexus.pkr.hcl | jq -r '.builds[-1].artifact_id' | cut -d ':' -f2)
+          AMI_ID=$(packer inspect -json ./nexus.pkr.hcl | jq -r '.builds[-1].artifact_id' | cut -d ':' -f2)
           echo "ami_id=$AMI_ID" >> $GITHUB_ENV
 
-      # Step 7: Apply Terraform
+      # Step 9: Apply Terraform
       - name: Apply Terraform
-        working-directory: ./step4-terraform
+        working-directory: nexusproject/step4-terraform
         run: |
           terraform init
-          terraform apply -auto-approve -var="ami_id=${{ env.ami_id }}" -var="key_name=my-laptop-key" -var="region=${{ env.AWS_REGION }}"  
+          terraform apply -auto-approve -var="ami_id=${{ env.ami_id }}" -var="key_name=my-laptop-key" -var="region=${{ env.AWS_REGION }}"
