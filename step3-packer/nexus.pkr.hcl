@@ -6,13 +6,12 @@ packer {
     }
     ansible = {
       source  = "github.com/hashicorp/ansible"
-      version = ">= 1.0.0"
+      version = "~> 1.1"
     }
   }
 }
 
 variable "region" {
-  type    = string
   default = "us-east-1"
 }
 
@@ -20,8 +19,7 @@ source "amazon-ebs" "nexus-build" {
   region        = var.region
   instance_type = "t2.medium"
   ssh_username  = "ubuntu"
-
-  ami_name = "nexus-ami-{{timestamp}}"
+  ami_name      = "nexus-ami-{{timestamp}}"
 
   source_ami_filter {
     filters = {
@@ -35,12 +33,10 @@ source "amazon-ebs" "nexus-build" {
 }
 
 build {
-  name    = "nexus-ami-build"
+  name = "nexus-ami-build"
   sources = ["source.amazon-ebs.nexus-build"]
 
   provisioner "ansible" {
-    type          = "ansible-local"
     playbook_file = "../step2-ansible/install_nexus.yml"
-    extra_arguments = ["-v"]
   }
 }

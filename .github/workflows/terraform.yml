@@ -60,4 +60,53 @@ jobs:
         working-directory: ./step4-terraform
         run: |
           terraform init
-          terraform apply -auto-approve -var="ami_id=${{ env.ami_id }}" -var="key_name=my-laptop-key" -var="region=${{ env.AWS_REGION }}"
+          terraform apply -auto-approve -var="ami_id=${{ env.ami_id }}" -var="key_name=my-laptop-key" -var="region=${{ env.AWS_REGION }}"name: Build AMI and Deploy Terraform
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+
+    env:
+      AWS_REGION: us-east-1
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GH_PAT }}
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Install Packer
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y unzip curl jq
+          curl -fsSL https://apt.releases.hashicorp.com/gpg | sudo gpg --dearmor -o /usr/share/keyrings/hashicorp-archive-keyring.gpg
+          sudo apt-add-repository "deb [signed-by=/usr/share/keyrings/hashicorp-archive-keyring.gpg] https://apt.releases.hashicorp.com $(lsb_release -cs) main"
+          sudo apt-get update && sudo apt-get install packer -y
+          packer plugin install github.com/hashicorp/ansible
+
+      - name: Build AMI with Packer
+        working-directory: ./step3-packer
+        run: |
+          packer init -upgrade .
+          packer build ./nexus.pkr.hcl
+
+      - name: Apply Terraform
+        working-directory: ./step4-terraform
+        run: |
+          terraform init
+          terraform apply -auto-approve -var="ami_id=$(packer output -machine-readable nexus.pkr.hcl | jq -r '.builds[-1].artifact_id' | cut -d ':' -f2)" \
+                               -var="key_name=my-key" \
+                               -var="region=${{ env.AWS_REGION }}"

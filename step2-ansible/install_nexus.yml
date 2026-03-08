@@ -71,17 +71,6 @@
         group: "{{ nexus_group }}"
         mode: '0644'
 
-    - name: Set ownership of installation and work directories
-      file:
-        path: "{{ item }}"
-        state: directory
-        recurse: yes
-        owner: "{{ nexus_user }}"
-        group: "{{ nexus_group }}"
-      loop:
-        - "{{ nexus_install_dir }}"
-        - "{{ nexus_work_dir }}"
-
     - name: Create systemd service for Nexus
       copy:
         dest: /etc/systemd/system/nexus.service
