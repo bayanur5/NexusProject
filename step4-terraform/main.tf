@@ -1,13 +1,7 @@
-provider "aws" {
-  region = var.region
-}
-
-resource "aws_instance" "nexus" {
-  ami           = var.ami_id
+module "nexus_instance" {
+  source      = "../step5-module/nexus-instance"
+  region      = var.region
+  ami_id      = var.ami_id
   instance_type = var.instance_type
   key_name      = var.key_name
-
-  tags = {
-    Name = "Nexus-Instance"
-  }
 }

@@ -15,7 +15,8 @@ source "amazon-ebs" "nexus-build" {
   region        = var.region
   instance_type = "t2.medium"
   ssh_username  = "ubuntu"
-  ami_name      = "nexus-ami-{{timestamp}}"
+
+  ami_name = "nexus-ami-{{timestamp}}"
 
   source_ami_filter {
     filters = {
@@ -23,6 +24,7 @@ source "amazon-ebs" "nexus-build" {
       root-device-type    = "ebs"
       virtualization-type = "hvm"
     }
+
     most_recent = true
     owners      = ["099720109477"]
   }
@@ -30,6 +32,7 @@ source "amazon-ebs" "nexus-build" {
 
 build {
   name = "nexus-ami-build"
+
   sources = [
     "source.amazon-ebs.nexus-build"
   ]
