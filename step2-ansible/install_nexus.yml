@@ -1,0 +1,117 @@
+---
+- name: Install Nexus Repository Manager
+  hosts: all
+  become: yes
+  vars:
+    nexus_version: "3.90.1-01"
+    nexus_download_url: "https://download.sonatype.com/nexus/3/nexus-{{ nexus_version }}-linux-x86_64.tar.gz"
+    nexus_install_dir: "/opt/nexus"
+    nexus_work_dir: "/opt/sonatype-work/nexus3"
+    nexus_user: "nexus"
+    nexus_group: "nexus"
+
+  tasks:
+    - name: Update apt cache
+      apt:
+        update_cache: yes
+
+    - name: Install Java 8 JRE
+      apt:
+        name: openjdk-8-jre-headless
+        state: present
+
+    - name: Ensure nexus group exists
+      group:
+        name: "{{ nexus_group }}"
+        state: present
+
+    - name: Ensure nexus user exists
+      user:
+        name: "{{ nexus_user }}"
+        group: "{{ nexus_group }}"
+        shell: /bin/bash
+        create_home: yes
+
+    - name: Create installation directories
+      file:
+        path: "{{ item }}"
+        state: directory
+        owner: "{{ nexus_user }}"
+        group: "{{ nexus_group }}"
+        mode: '0755'
+      loop:
+        - "{{ nexus_install_dir }}"
+        - "{{ nexus_work_dir }}"
+
+    - name: Download Nexus tarball
+      get_url:
+        url: "{{ nexus_download_url }}"
+        dest: "/tmp/nexus-{{ nexus_version }}.tar.gz"
+        mode: '0644'
+
+    - name: Extract Nexus tarball
+      unarchive:
+        src: "/tmp/nexus-{{ nexus_version }}.tar.gz"
+        dest: "/opt"
+        remote_src: yes
+        creates: "/opt/nexus-{{ nexus_version }}"
+
+    - name: Symlink extracted folder to /opt/nexus/current
+      file:
+        src: "/opt/nexus-{{ nexus_version }}"
+        dest: "{{ nexus_install_dir }}/current"
+        state: link
+        force: yes
+
+    - name: Ensure nexus.rc exists
+      copy:
+        content: "run_as_user={{ nexus_user }}"
+        dest: "{{ nexus_install_dir }}/current/bin/nexus.rc"
+        owner: "{{ nexus_user }}"
+        group: "{{ nexus_group }}"
+        mode: '0644'
+
+    - name: Set ownership of installation and work directories
+      file:
+        path: "{{ item }}"
+        state: directory
+        recurse: yes
+        owner: "{{ nexus_user }}"
+        group: "{{ nexus_group }}"
+      loop:
+        - "{{ nexus_install_dir }}"
+        - "{{ nexus_work_dir }}"
+
+    - name: Create systemd service for Nexus
+      copy:
+        dest: /etc/systemd/system/nexus.service
+        content: |
+          [Unit]
+          Description=Nexus Repository Manager
+          After=network.target
+
+          [Service]
+          Type=forking
+          LimitNOFILE=65536
+          User={{ nexus_user }}
+          Group={{ nexus_group }}
+          Environment=INSTALL4J_JAVA_HOME=/usr/lib/jvm/java-8-openjdk-amd64
+          ExecStart={{ nexus_install_dir }}/current/bin/nexus start
+          ExecStop={{ nexus_install_dir }}/current/bin/nexus stop
+          Restart=on-abort
+
+          [Install]
+          WantedBy=multi-user.target
+        owner: root
+        group: root
+        mode: '0644'
+
+    - name: Reload systemd daemon
+      systemd:
+        daemon_reload: yes
+
+    - name: Enable and start Nexus service
+      systemd:
+        name: nexus
+        enabled: yes
+        state: started
