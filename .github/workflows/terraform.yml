@@ -24,13 +24,13 @@ jobs:
         with:
           fetch-depth: 0
 
-      # 2. Setup Terraform
+      # 2. Setup Terraform (latest version)
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
         with:
-          terraform_version: 1.6.9
+          terraform_version: latest
 
-      # 3. Configure AWS credentials
+      # 3. Configure AWS credentials for Terraform
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -38,7 +38,7 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
 
-      # 4. Terraform Init
+      # 4. Terraform Initialize
       - name: Terraform Init
         working-directory: ./step4-terraform
         run: terraform init
