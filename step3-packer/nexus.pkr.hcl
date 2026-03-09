@@ -1,51 +1,46 @@
-// ===========================
-// Packer template for Nexus
-// Compatible with older Packer versions (no launch_block_device)
-// ===========================
-
-packer {
-  required_plugins {
-    amazon = {
-      version = ">= 1.0.0"
-      source  = "github.com/hashicorp/amazon"
-    }
-    ansible = {
-      version = ">= 1.0.0"
-      source  = "github.com/hashicorp/ansible"
-    }
-  }
-}
-
-source "amazon-ebs" "nexus-build" {
-  region        = "us-east-1"
-  instance_type = "t3.medium"          // Temporary build instance
-  ssh_username  = "ubuntu"
-  ami_name      = "nexus-ami-{{timestamp}}"
-
-  tags = {
-    Name    = "nexus-ami"
-    Project = "nexus"
-  }
-
-  // Base Ubuntu 22.04 image
+source "amazon-ebs" "nexus" {
+  region           = "us-east-1"
+  instance_type   = "t2.micro"
+  ami_name        = "nexus-ami-{{timestamp}}"
   source_ami_filter {
-    filters = {
-      name                = "ubuntu/images/hvm-ssd/ubuntu-jammy-22.04-amd64-server-*"
-      root-device-type    = "ebs"
-      virtualization-type = "hvm"
+    owners      = ["099720109477"]
+    filters {
+      name   = "ubuntu/images/hvm-ssd/ubuntu-jammy-22.04-amd64-server-*"
     }
-    owners      = ["099720109477"]   // Canonical
     most_recent = true
+    owners      = ["099720109477"]
   }
-
-  // ✅ Removed launch_block_device to support older Packer versions
+  ssh_username = "ubuntu"
 }
 
 build {
-  sources = ["source.amazon-ebs.nexus-build"]
+  sources = ["source.amazon-ebs.nexus"]
 
-  // Provision with Ansible
-  provisioner "ansible" {
-    playbook_file = "/home/ubuntu/NexusProject/step2-ansible/install_nexus.yml"
+  provisioner "shell" {
+    inline = [
+      # Install prerequisites
+      "sudo apt-get update -y",
+      "sudo apt-get install openjdk-11-jdk -y",
+      "sudo apt-get install wget -y",
+      # Download Nexus
+      "wget -O /tmp/nexus.tar.gz https://download.sonatype.com/nexus/3/latest-unix.tar.gz",
+      "sudo tar -xvzf /tmp/nexus.tar.gz -C /opt",
+      "sudo mv /opt/nexus-* /opt/nexus-3.90.1-01",
+      # Create nexus user
+      "sudo useradd -r -m -d /opt/nexus-3.90.1-01 -s /bin/bash nexus",
+      "sudo chown -R nexus:nexus /opt/nexus-3.90.1-01",
+      # Setup systemd service
+      "sudo bash -c 'cat <<EOF > /etc/systemd/system/nexus.service\n[Unit]\nDescription=Nexus Repository Manager\nAfter=network.target\n[Service]\nType=forking\nUser=nexus\nExecStart=/opt/nexus-3.901-01/bin/nexus start\nExecStop=/opt/nexus-3.901-01/bin/nexus stop\n[Install]\nWantedBy=multi-user.target\nEOF'",
+      # Enable and start Nexus
+      "sudo systemctl daemon-reload",
+      "sudo systemctl enable nexus",
+      "sudo systemctl start nexus"
+    ]
+  }
+
+  provisioner "shell" {
+    inline = ["echo 'Nexus setup complete.'"]
   }
 }
+
+post-processor "manifest" {}
