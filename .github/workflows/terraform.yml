@@ -7,18 +7,20 @@ on:
   workflow_dispatch:
     inputs:
       aws_region:
-        description: 'AWS Region'
+        description: 'AWS Region to deploy'
+        required: false
         default: 'us-east-1'
-        required: true
 
 env:
-  AWS_REGION: ${{ github.event.inputs.aws_region }}
+  # Use input from workflow_dispatch or default to us-east-1
+  AWS_REGION: ${{ github.event.inputs.aws_region || 'us-east-1' }}
 
 jobs:
   build-ami:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - name: Checkout Repo
+        uses: actions/checkout@v3
 
       - name: Configure AWS
         uses: aws-actions/configure-aws-credentials@v2
@@ -30,14 +32,13 @@ jobs:
       - name: Install Packer
         run: |
           sudo apt-get update
-          sudo apt-get install -y unzip curl
+          sudo apt-get install -y unzip
           curl -fsSL https://releases.hashicorp.com/packer/1.9.4/packer_1.9.4_linux_amd64.zip -o packer.zip
           unzip packer.zip
           sudo mv packer /usr/local/bin/
-          packer --version
 
       - name: Build Nexus AMI
-        working-directory: ./NexusProject/packer
+        working-directory: NexusProject/packer
         run: |
           packer init .
           packer build -machine-readable nexus.pkr.hcl | tee packer.log
@@ -45,14 +46,15 @@ jobs:
       - name: Extract AMI ID
         id: ami
         run: |
-          AMI_ID=$(grep 'artifact,0,id' ./NexusProject/packer/packer.log | cut -d',' -f6 | cut -d':' -f2)
+          AMI_ID=$(grep 'artifact,0,id' NexusProject/packer/packer.log | cut -d',' -f6 | cut -d':' -f2)
           echo "AMI_ID=$AMI_ID" >> $GITHUB_ENV
 
   deploy-nexus:
     needs: build-ami
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - name: Checkout Repo
+        uses: actions/checkout@v3
 
       - name: Configure AWS
         uses: aws-actions/configure-aws-credentials@v2
@@ -64,21 +66,20 @@ jobs:
       - name: Install Terraform
         run: |
           sudo apt-get update
-          sudo apt-get install -y unzip curl
+          sudo apt-get install -y unzip
           curl -fsSL https://releases.hashicorp.com/terraform/1.5.7/terraform_1.5.7_linux_amd64.zip -o terraform.zip
           unzip terraform.zip
           sudo mv terraform /usr/local/bin/
-          terraform --version
 
       - name: Terraform Init
-        working-directory: ./NexusProject/step5-module
+        working-directory: NexusProject/step5-module
         run: terraform init
 
       - name: Terraform Apply
-        working-directory: ./NexusProject/step5-module
+        working-directory: NexusProject/step5-module
         run: terraform apply -auto-approve -var="ami_id=${{ env.AMI_ID }}" -var="region=${{ env.AWS_REGION }}"
 
-      - name: Terraform Destroy (optional)
-        if: github.event.inputs.destroy == 'true'
-        working-directory: ./NexusProject/step5-module
+      - name: Terraform Destroy (Optional)
+        if: ${{ github.event.inputs.destroy == 'true' }}
+        working-directory: NexusProject/step5-module
         run: terraform destroy -auto-approve -var="ami_id=${{ env.AMI_ID }}" -var="region=${{ env.AWS_REGION }}"
