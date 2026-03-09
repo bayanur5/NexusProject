@@ -2,16 +2,6 @@ provider "aws" {
   region = var.region
 }
 
-# Fetch the latest Nexus AMI created by Packer
-data "aws_ami" "nexus_latest" {
-  most_recent = true
-  owners      = ["self"]  # your AWS account
-  filter {
-    name   = "name"
-    values = ["nexus-ami-*"]
-  }
-}
-
 # Security Group for Nexus
 resource "aws_security_group" "nexus_sg" {
   name        = "nexus-sg"
@@ -42,20 +32,19 @@ resource "aws_security_group" "nexus_sg" {
 
 # Nexus EC2 Instance
 resource "aws_instance" "nexus" {
-  ami                         = data.aws_ami.nexus_latest.id
+  ami                         = var.ami_id
   instance_type                = var.instance_type
   subnet_id                    = var.public_subnet_ids[0]
   key_name                     = var.key_name
   vpc_security_group_ids       = [aws_security_group.nexus_sg.id]
   associate_public_ip_address  = true
-
   tags = {
     Name    = "nexus-server"
     Project = "NexusTest"
   }
 }
 
-# Optional: wait until Nexus responds on port 8081
+# Optional: Wait until Nexus is up on port 8081
 resource "null_resource" "wait_for_nexus" {
   depends_on = [aws_instance.nexus]
 
@@ -64,7 +53,7 @@ resource "null_resource" "wait_for_nexus" {
       type        = "ssh"
       host        = aws_instance.nexus.public_ip
       user        = "ubuntu"
-      private_key = file(var.private_key_path)
+      private_key = file("~/.ssh/id_rsa")
     }
 
     inline = [

@@ -1,11 +1,15 @@
+variable "region" {
+  default = "us-east-1"
+}
+
 source "amazon-ebs" "nexus" {
-  region         = "us-east-1"
-  instance_type  = "t2.micro"
-  ssh_username   = "ubuntu"
-  ami_name       = "nexus-ami-{{timestamp}}"
+  region           = var.region
+  instance_type    = "t2.micro"
+  ssh_username     = "ubuntu"
+  ami_name         = "nexus-ami-{{timestamp}}"
 
   source_ami_filter {
-    owners      = ["099720109477"] # Official Ubuntu AMIs
+    owners      = ["099720109477"] # Canonical
     filters {
       name = "ubuntu/images/hvm-ssd/ubuntu-jammy-22.04-amd64-server-*"
     }
@@ -18,7 +22,7 @@ build {
 
   provisioner "shell" {
     inline = [
-      # Install prerequisites
+      # Update & install prerequisites
       "sudo apt-get update -y",
       "sudo apt-get install -y openjdk-11-jdk wget netcat",
 
@@ -31,18 +35,20 @@ build {
       "sudo useradd -r -m -d /opt/nexus-3.90.1-01 -s /bin/bash nexus",
       "sudo chown -R nexus:nexus /opt/nexus-3.90.1-01",
 
-      # Create systemd service with correct path
+      # Create systemd service
       "sudo bash -c 'cat <<EOF > /etc/systemd/system/nexus.service\n[Unit]\nDescription=Nexus Repository Manager\nAfter=network.target\n[Service]\nType=forking\nUser=nexus\nExecStart=/opt/nexus-3.90.1-01/bin/nexus start\nExecStop=/opt/nexus-3.90.1-01/bin/nexus stop\nRestart=on-failure\n[Install]\nWantedBy=multi-user.target\nEOF'",
 
-      # Enable and start Nexus
+      # Enable and start Nexus service
       "sudo systemctl daemon-reload",
       "sudo systemctl enable nexus",
-      "sudo systemctl start nexus"
-    ]
-  }
+      "sudo systemctl start nexus",
 
-  provisioner "shell" {
-    inline = ["echo 'Nexus setup complete and will start automatically on boot.'"]
+      # Wait until Nexus responds on port 8081
+      "for i in $(seq 1 30); do",
+      "  nc -zv 127.0.0.1 8081 && break || sleep 10",
+      "done",
+      "echo 'Nexus AMI setup complete.'"
+    ]
   }
 }
 
