@@ -6,21 +6,19 @@ on:
       - main
   workflow_dispatch:
     inputs:
-      aws_region:
-        description: 'AWS Region to deploy'
-        required: false
+      aws-region:
+        description: 'AWS Region'
+        required: true
         default: 'us-east-1'
 
 env:
-  # Use input from workflow_dispatch or default to us-east-1
-  AWS_REGION: ${{ github.event.inputs.aws_region || 'us-east-1' }}
+  AWS_REGION: ${{ github.event.inputs.aws-region }}
 
 jobs:
   build-ami:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout Repo
-        uses: actions/checkout@v3
+      - uses: actions/checkout@v3
 
       - name: Configure AWS
         uses: aws-actions/configure-aws-credentials@v2
@@ -38,7 +36,7 @@ jobs:
           sudo mv packer /usr/local/bin/
 
       - name: Build Nexus AMI
-        working-directory: NexusProject/packer
+        working-directory: ./NexusProject/step3-packer
         run: |
           packer init .
           packer build -machine-readable nexus.pkr.hcl | tee packer.log
@@ -46,15 +44,14 @@ jobs:
       - name: Extract AMI ID
         id: ami
         run: |
-          AMI_ID=$(grep 'artifact,0,id' NexusProject/packer/packer.log | cut -d',' -f6 | cut -d':' -f2)
+          AMI_ID=$(grep 'artifact,0,id' ./NexusProject/step3-packer/packer.log | cut -d',' -f6 | cut -d':' -f2)
           echo "AMI_ID=$AMI_ID" >> $GITHUB_ENV
 
   deploy-nexus:
     needs: build-ami
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout Repo
-        uses: actions/checkout@v3
+      - uses: actions/checkout@v3
 
       - name: Configure AWS
         uses: aws-actions/configure-aws-credentials@v2
@@ -72,14 +69,9 @@ jobs:
           sudo mv terraform /usr/local/bin/
 
       - name: Terraform Init
-        working-directory: NexusProject/step5-module
+        working-directory: ./NexusProject/step5-module
         run: terraform init
 
       - name: Terraform Apply
-        working-directory: NexusProject/step5-module
+        working-directory: ./NexusProject/step5-module
         run: terraform apply -auto-approve -var="ami_id=${{ env.AMI_ID }}" -var="region=${{ env.AWS_REGION }}"
-
-      - name: Terraform Destroy (Optional)
-        if: ${{ github.event.inputs.destroy == 'true' }}
-        working-directory: NexusProject/step5-module
-        run: terraform destroy -auto-approve -var="ami_id=${{ env.AMI_ID }}" -var="region=${{ env.AWS_REGION }}"
