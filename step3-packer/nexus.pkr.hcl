@@ -17,15 +17,14 @@ source "amazon-ebs" "nexus-build" {
   ssh_username  = "ubuntu"
   ami_name      = "nexus-ami-{{timestamp}}"
 
-  # Pick the latest Ubuntu 20.04 AMI
-  most_recent = true
-
-  filters = {
-    name                = "ubuntu/images/hvm-ssd/ubuntu-focal-20.04-amd64-server-*"
-    virtualization-type = "hvm"
+  source_ami_filter {
+    filters = {
+      name                = "ubuntu/images/hvm-ssd/ubuntu-focal-20.04-amd64-server-*"
+      virtualization-type = "hvm"
+    }
+    owners      = ["099720109477"] # Canonical
+    most_recent = true
   }
-
-  owners = ["099720109477"] # Canonical
 }
 
 build {
