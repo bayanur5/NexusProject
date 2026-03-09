@@ -1,76 +1,71 @@
 ---
-- name: Install Nexus Repository Manager
-  hosts: all
-  become: yes
+- hosts: all
+  become: true
+
   vars:
-    nexus_version: "3.90.1-01"
-    nexus_download_url: "https://download.sonatype.com/nexus/3/nexus-{{ nexus_version }}-linux-x86_64.tar.gz"
-    nexus_install_dir: "/opt/nexus"
-    nexus_work_dir: "/opt/sonatype-work/nexus3"
+    nexus_version: "3.90.1-01"   # Change this to upgrade Nexus in future
     nexus_user: "nexus"
-    nexus_group: "nexus"
+    nexus_install_dir: "/opt"
+    nexus_tarball: "/tmp/nexus.tar.gz"
+    nexus_url: "https://download.sonatype.com/nexus/3/nexus-{{ nexus_version }}-linux-x86_64.tar.gz"
 
   tasks:
+
+    # --------------------------
+    # 1. Update system
+    # --------------------------
     - name: Update apt cache
       apt:
         update_cache: yes
 
-    - name: Install Java 8 JRE
+    # --------------------------
+    # 2. Install Java 11 (no recommends)
+    # --------------------------
+    - name: Install Java 11 (without recommends)
       apt:
-        name: openjdk-8-jre-headless
+        name: openjdk-11-jdk
         state: present
+        install_recommends: no
+        update_cache: yes
 
-    - name: Ensure nexus group exists
-      group:
-        name: "{{ nexus_group }}"
-        state: present
-
+    # --------------------------
+    # 3. Create Nexus user
+    # --------------------------
     - name: Ensure nexus user exists
       user:
         name: "{{ nexus_user }}"
-        group: "{{ nexus_group }}"
-        shell: /bin/bash
-        create_home: yes
+        state: present
 
-    - name: Create installation directories
-      file:
-        path: "{{ item }}"
-        state: directory
-        owner: "{{ nexus_user }}"
-        group: "{{ nexus_group }}"
-        mode: '0755'
-      loop:
-        - "{{ nexus_install_dir }}"
-        - "{{ nexus_work_dir }}"
-
+    # --------------------------
+    # 4. Download Nexus
+    # --------------------------
     - name: Download Nexus tarball
       get_url:
-        url: "{{ nexus_download_url }}"
-        dest: "/tmp/nexus-{{ nexus_version }}.tar.gz"
-        mode: '0644'
+        url: "{{ nexus_url }}"
+        dest: "{{ nexus_tarball }}"
 
-    - name: Extract Nexus tarball
+    # --------------------------
+    # 5. Extract Nexus
+    # --------------------------
+    - name: Extract Nexus
       unarchive:
-        src: "/tmp/nexus-{{ nexus_version }}.tar.gz"
-        dest: "/opt"
+        src: "{{ nexus_tarball }}"
+        dest: "{{ nexus_install_dir }}/"
         remote_src: yes
-        creates: "/opt/nexus-{{ nexus_version }}"
 
-    - name: Symlink extracted folder to /opt/nexus/current
+    # --------------------------
+    # 6. Set permissions
+    # --------------------------
+    - name: Set Nexus ownership
       file:
-        src: "/opt/nexus-{{ nexus_version }}"
-        dest: "{{ nexus_install_dir }}/current"
-        state: link
-        force: yes
-
-    - name: Ensure nexus.rc exists
-      copy:
-        content: "run_as_user={{ nexus_user }}"
-        dest: "{{ nexus_install_dir }}/current/bin/nexus.rc"
+        path: "{{ nexus_install_dir }}/nexus-{{ nexus_version }}"
         owner: "{{ nexus_user }}"
-        group: "{{ nexus_group }}"
-        mode: '0644'
+        group: "{{ nexus_user }}"
+        recurse: yes
 
+    # --------------------------
+    # 7. Configure systemd service
+    # --------------------------
     - name: Create systemd service for Nexus
       copy:
         dest: /etc/systemd/system/nexus.service
@@ -78,27 +73,17 @@
           [Unit]
           Description=Nexus Repository Manager
           After=network.target
-
           [Service]
           Type=forking
-          LimitNOFILE=65536
           User={{ nexus_user }}
-          Group={{ nexus_group }}
-          Environment=INSTALL4J_JAVA_HOME=/usr/lib/jvm/java-8-openjdk-amd64
-          ExecStart={{ nexus_install_dir }}/current/bin/nexus start
-          ExecStop={{ nexus_install_dir }}/current/bin/nexus stop
-          Restart=on-abort
-
+          ExecStart={{ nexus_install_dir }}/nexus-{{ nexus_version }}/bin/nexus start
+          ExecStop={{ nexus_install_dir }}/nexus-{{ nexus_version }}/bin/nexus stop
           [Install]
           WantedBy=multi-user.target
-        owner: root
-        group: root
-        mode: '0644'
 
-    - name: Reload systemd daemon
-      systemd:
-        daemon_reload: yes
-
+    # --------------------------
+    # 8. Enable and start Nexus service
+    # --------------------------
     - name: Enable and start Nexus service
       systemd:
         name: nexus

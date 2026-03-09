@@ -1,2 +1,2 @@
-[nexus]
-localhost ansible_connection=local
+[nexus_servers]                                       # Group name used in your playbook
+3.237.178.186 ansible_user=ubuntu ansible_ssh_private_key_file=/home/ubuntu/.ssh/my-laptop-key

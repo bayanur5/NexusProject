@@ -1,9 +1,12 @@
-# Show instance ID from the module
-output "instance_id" {
-  value = module.nexus_instance.instance_id
+output "nexus_ip" {
+  value       = aws_instance.nexus_server.public_ip
+  description = "Public IP of the Nexus server"
 }
 
-# Show Nexus web URL after deployment
-output "nexus_url" {
-  value = "http://${module.nexus_instance.public_ip}:8081"
+output "vpc_id" {
+  value = aws_vpc.main.id
+}
+
+output "public_subnets" {
+  value = aws_subnet.public[*].id
 }
