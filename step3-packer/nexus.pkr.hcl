@@ -1,40 +1,43 @@
-source "amazon-ebs" "nexus" {
-  region         = "us-east-1"
-  instance_type  = "t2.micro"
-  ssh_username   = "ubuntu"
-  ami_name       = "nexus-ami-{{timestamp}}"
+packer {
+  required_plugins {
+    amazon = {
+      version = ">= 1.0.0"
+      source  = "github.com/hashicorp/amazon"
+    }
+    ansible = {
+      version = ">= 1.0.0"
+      source  = "github.com/hashicorp/ansible"
+    }
+  }
+}
+
+source "amazon-ebs" "nexus-build" {
+  region                  = "us-east-1"
+  instance_type            = "t2.micro"
+  ssh_username             = "ubuntu"
+  ami_name                 = "nexus-ami-{{timestamp}}"
+  associate_public_ip_address = true
 
   source_ami_filter {
-    owners      = ["099720109477"] # Ubuntu official
-    filters {
-      name = "ubuntu/images/hvm-ssd/ubuntu-jammy-22.04-amd64-server-*"
+    filters = {
+      name                = "ubuntu/images/hvm-ssd/ubuntu-focal-20.04-amd64-server-*"
+      root-device-type    = "ebs"
+      virtualization-type = "hvm"
     }
+    owners      = ["099720109477"]
     most_recent = true
   }
 }
 
 build {
-  sources = ["source.amazon-ebs.nexus"]
+  name    = "nexus-ami-build"
+  sources = ["source.amazon-ebs.nexus-build"]
 
-  provisioner "shell" {
-    inline = [
-      "sudo apt-get update -y",
-      "sudo apt-get install -y openjdk-11-jdk wget",
-      "wget -O /tmp/nexus.tar.gz https://download.sonatype.com/nexus/3/latest-unix.tar.gz",
-      "sudo tar -xvzf /tmp/nexus.tar.gz -C /opt",
-      "sudo mv /opt/nexus-* /opt/nexus-3.90.1-01",
-      "sudo useradd -r -m -d /opt/nexus-3.90.1-01 -s /bin/bash nexus || true",
-      "sudo chown -R nexus:nexus /opt/nexus-3.90.1-01",
-      "sudo bash -c 'cat <<EOF > /etc/systemd/system/nexus.service\n[Unit]\nDescription=Nexus Repository Manager\nAfter=network.target\n[Service]\nType=forking\nUser=nexus\nExecStart=/opt/nexus-3.90.1-01/bin/nexus start\nExecStop=/opt/nexus-3.90.1-01/bin/nexus stop\nRestart=on-failure\n[Install]\nWantedBy=multi-user.target\nEOF'",
-      "sudo systemctl daemon-reload",
-      "sudo systemctl enable nexus",
-      "sudo systemctl start nexus"
-    ]
+  provisioner "ansible" {
+    playbook_file = "../step2-ansible/install_nexus.yml"
   }
 
-  provisioner "shell" {
-    inline = ["echo 'Nexus AMI build complete.'"]
+  post-processor "manifest" {
+    output = "manifest.json"
   }
 }
-
-post-processor "manifest" {}

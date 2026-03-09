@@ -1,65 +1,62 @@
-name: Nexus DevOps Pipeline
+name: Build AMI and Deploy Terraform
 
 on:
   push:
-    branches:
-      - main
+    branches: [ main ]
   workflow_dispatch:
 
 jobs:
-
-  packer:
+  build-ami:
     runs-on: ubuntu-latest
+    outputs:
+      ami_id: ${{ steps.packer_build.outputs.ami_id }}
 
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
 
-      - name: Checkout Repository
-        uses: actions/checkout@v4
+      - name: Install Packer
+        run: |
+          curl -fsSL https://apt.releases.hashicorp.com/gpg | sudo gpg --dearmor -o /usr/share/keyrings/hashicorp-archive-keyring.gpg
+          echo "deb [signed-by=/usr/share/keyrings/hashicorp-archive-keyring.gpg] https://apt.releases.hashicorp.com $(lsb_release -cs) main" | sudo tee /etc/apt/sources.list.d/hashicorp.list
+          sudo apt update && sudo apt install -y packer
 
-      - name: Configure AWS Credentials
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: us-east-1
+      - name: Packer Init
+        working-directory: ./NexusProject/step3-packer
+        run: packer init nexus.pkr.hcl
 
-      - name: Setup Packer
-        uses: hashicorp/setup-packer@v3
+      - name: Packer Validate
+        working-directory: ./NexusProject/step3-packer
+        run: packer validate nexus.pkr.hcl
 
-      - name: Initialize Packer
-        run: packer init step3-packer/
-
-      - name: Build AMI
-        run: packer build step3-packer/nexus.pkr.hcl
-
+      - name: Packer Build
+        id: packer_build
+        working-directory: ./NexusProject/step3-packer
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: us-east-1
+        run: |
+          # Build AMI and capture AMI ID
+          AMI_ID=$(packer build -machine-readable nexus.pkr.hcl | awk -F, '$0 ~/artifact,0,id/ {print $6}')
+          echo "ami_id=$AMI_ID" >> $GITHUB_OUTPUT
+          echo "Built AMI: $AMI_ID"
 
   terraform:
+    needs: build-ami
     runs-on: ubuntu-latest
-    needs: packer
 
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
 
-      - name: Checkout Repository
-        uses: actions/checkout@v4
-
-      - name: Configure AWS Credentials
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: us-east-1
-
-      - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v3
-
-      - name: Terraform Init
-        working-directory: step4-terraform
-        run: terraform init
-
-      - name: Terraform Plan
-        working-directory: step4-terraform
-        run: terraform plan -var="key_name=${{ secrets.KEY_NAME }}" -out=tfplan
-
-      - name: Terraform Apply
-        working-directory: step4-terraform
-        run: terraform apply -auto-approve tfplan
+      - name: Terraform Init & Apply
+        working-directory: ./terraform-nexus-workflow
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: us-east-1
+          AMI_ID: ${{ needs.build-ami.outputs.ami_id }}
+        run: |
+          terraform init
+          terraform apply -auto-approve -var "ami_id=$AMI_ID"
