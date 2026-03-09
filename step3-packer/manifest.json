@@ -1,0 +1,14 @@
+{
+  "builds": [
+    {
+      "name": "nexus-build",
+      "builder_type": "amazon-ebs",
+      "build_time": 1773068620,
+      "files": null,
+      "artifact_id": "us-east-1:ami-0c8be44673526d673",
+      "packer_run_uuid": "62e6dfa6-4ec1-01ef-eafc-f9ad1e84b30c",
+      "custom_data": null
+    }
+  ],
+  "last_run_uuid": "62e6dfa6-4ec1-01ef-eafc-f9ad1e84b30c"
+}

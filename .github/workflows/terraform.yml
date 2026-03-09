@@ -1,62 +1,84 @@
-name: Build AMI and Deploy Terraform
+name: Build & Deploy Nexus
 
 on:
   push:
-    branches: [ main ]
+    branches:
+      - main
   workflow_dispatch:
+    inputs:
+      aws_region:
+        description: 'AWS Region'
+        default: 'us-east-1'
+        required: true
+
+env:
+  AWS_REGION: ${{ github.event.inputs.aws_region }}
 
 jobs:
   build-ami:
     runs-on: ubuntu-latest
-    outputs:
-      ami_id: ${{ steps.packer_build.outputs.ami_id }}
-
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v3
+      - uses: actions/checkout@v3
+
+      - name: Configure AWS
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
 
       - name: Install Packer
         run: |
-          curl -fsSL https://apt.releases.hashicorp.com/gpg | sudo gpg --dearmor -o /usr/share/keyrings/hashicorp-archive-keyring.gpg
-          echo "deb [signed-by=/usr/share/keyrings/hashicorp-archive-keyring.gpg] https://apt.releases.hashicorp.com $(lsb_release -cs) main" | sudo tee /etc/apt/sources.list.d/hashicorp.list
-          sudo apt update && sudo apt install -y packer
+          sudo apt-get update
+          sudo apt-get install -y unzip curl
+          curl -fsSL https://releases.hashicorp.com/packer/1.9.4/packer_1.9.4_linux_amd64.zip -o packer.zip
+          unzip packer.zip
+          sudo mv packer /usr/local/bin/
+          packer --version
 
-      - name: Packer Init
-        working-directory: ./NexusProject/step3-packer
-        run: packer init nexus.pkr.hcl
-
-      - name: Packer Validate
-        working-directory: ./NexusProject/step3-packer
-        run: packer validate nexus.pkr.hcl
-
-      - name: Packer Build
-        id: packer_build
-        working-directory: ./NexusProject/step3-packer
-        env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          AWS_DEFAULT_REGION: us-east-1
+      - name: Build Nexus AMI
+        working-directory: ./NexusProject/packer
         run: |
-          # Build AMI and capture AMI ID
-          AMI_ID=$(packer build -machine-readable nexus.pkr.hcl | awk -F, '$0 ~/artifact,0,id/ {print $6}')
-          echo "ami_id=$AMI_ID" >> $GITHUB_OUTPUT
-          echo "Built AMI: $AMI_ID"
+          packer init .
+          packer build -machine-readable nexus.pkr.hcl | tee packer.log
 
-  terraform:
+      - name: Extract AMI ID
+        id: ami
+        run: |
+          AMI_ID=$(grep 'artifact,0,id' ./NexusProject/packer/packer.log | cut -d',' -f6 | cut -d':' -f2)
+          echo "AMI_ID=$AMI_ID" >> $GITHUB_ENV
+
+  deploy-nexus:
     needs: build-ami
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v3
+      - uses: actions/checkout@v3
 
-      - name: Terraform Init & Apply
-        working-directory: ./terraform-nexus-workflow
-        env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          AWS_DEFAULT_REGION: us-east-1
-          AMI_ID: ${{ needs.build-ami.outputs.ami_id }}
+      - name: Configure AWS
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Install Terraform
         run: |
-          terraform init
-          terraform apply -auto-approve -var "ami_id=$AMI_ID"
+          sudo apt-get update
+          sudo apt-get install -y unzip curl
+          curl -fsSL https://releases.hashicorp.com/terraform/1.5.7/terraform_1.5.7_linux_amd64.zip -o terraform.zip
+          unzip terraform.zip
+          sudo mv terraform /usr/local/bin/
+          terraform --version
+
+      - name: Terraform Init
+        working-directory: ./NexusProject/step5-module
+        run: terraform init
+
+      - name: Terraform Apply
+        working-directory: ./NexusProject/step5-module
+        run: terraform apply -auto-approve -var="ami_id=${{ env.AMI_ID }}" -var="region=${{ env.AWS_REGION }}"
+
+      - name: Terraform Destroy (optional)
+        if: github.event.inputs.destroy == 'true'
+        working-directory: ./NexusProject/step5-module
+        run: terraform destroy -auto-approve -var="ami_id=${{ env.AMI_ID }}" -var="region=${{ env.AWS_REGION }}"
