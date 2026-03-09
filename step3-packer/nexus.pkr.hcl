@@ -1,20 +1,16 @@
-# nexus.pkr.hcl
-
 source "amazon-ebs" "nexus" {
-  region           = "us-east-1"
-  instance_type    = "t2.micro"
-  ami_name         = "nexus-ami-{{timestamp}}"
+  region         = "us-east-1"
+  instance_type  = "t2.micro"
+  ssh_username   = "ubuntu"
+  ami_name       = "nexus-ami-{{timestamp}}"
 
-  # Select latest Ubuntu Jammy AMI
   source_ami_filter {
-    owners      = ["099720109477"]
+    owners      = ["099720109477"] # Official Ubuntu AMIs
     filters {
       name = "ubuntu/images/hvm-ssd/ubuntu-jammy-22.04-amd64-server-*"
     }
     most_recent = true
   }
-
-  ssh_username = "ubuntu"
 }
 
 build {
@@ -22,9 +18,9 @@ build {
 
   provisioner "shell" {
     inline = [
-      # Update and install prerequisites
+      # Install prerequisites
       "sudo apt-get update -y",
-      "sudo apt-get install -y openjdk-11-jdk wget",
+      "sudo apt-get install -y openjdk-11-jdk wget netcat",
 
       # Download and extract Nexus
       "wget -O /tmp/nexus.tar.gz https://download.sonatype.com/nexus/3/latest-unix.tar.gz",
@@ -34,26 +30,19 @@ build {
       # Create nexus user and set permissions
       "sudo useradd -r -m -d /opt/nexus-3.90.1-01 -s /bin/bash nexus",
       "sudo chown -R nexus:nexus /opt/nexus-3.90.1-01",
-      "sudo mkdir -p /opt/sonatype-work",
-      "sudo chown -R nexus:nexus /opt/sonatype-work",
 
-      # Create systemd service
-      "sudo bash -c 'cat <<EOF > /etc/systemd/system/nexus.service\n[Unit]\nDescription=Nexus Repository Manager\nAfter=network.target\n[Service]\nType=forking\nUser=nexus\nExecStart=/opt/nexus-3.90.1-01/bin/nexus start\nExecStop=/opt/nexus-3.90.1-01/bin/nexus stop\nRestart=on-abort\n[Install]\nWantedBy=multi-user.target\nEOF'",
+      # Create systemd service with correct path
+      "sudo bash -c 'cat <<EOF > /etc/systemd/system/nexus.service\n[Unit]\nDescription=Nexus Repository Manager\nAfter=network.target\n[Service]\nType=forking\nUser=nexus\nExecStart=/opt/nexus-3.90.1-01/bin/nexus start\nExecStop=/opt/nexus-3.90.1-01/bin/nexus stop\nRestart=on-failure\n[Install]\nWantedBy=multi-user.target\nEOF'",
 
-      # Enable and start service
+      # Enable and start Nexus
       "sudo systemctl daemon-reload",
       "sudo systemctl enable nexus",
-      "sudo systemctl start nexus",
-
-      # Optional check
-      "sudo systemctl status nexus --no-pager"
+      "sudo systemctl start nexus"
     ]
   }
 
   provisioner "shell" {
-    inline = [
-      "echo 'Nexus setup complete.'"
-    ]
+    inline = ["echo 'Nexus setup complete and will start automatically on boot.'"]
   }
 }
 
