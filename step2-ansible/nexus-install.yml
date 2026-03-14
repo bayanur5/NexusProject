@@ -1,91 +1,201 @@
 ---
-- hosts: all
-  become: true
+- name: Install and Configure Nexus Repository Manager
+  hosts: localhost
+  connection: local
+  become: yes
 
   vars:
-    nexus_version: "3.90.1-01"   # Change this to upgrade Nexus in future
-    nexus_user: "nexus"
-    nexus_install_dir: "/opt"
-    nexus_tarball: "/tmp/nexus.tar.gz"
-    nexus_url: "https://download.sonatype.com/nexus/3/nexus-{{ nexus_version }}-linux-x86_64.tar.gz"
+    nexus_version: "3.90.1-01"
+    nexus_filename: "nexus-{{ nexus_version }}-linux-x86_64.tar.gz"
+    nexus_download_url: "https://download.sonatype.com/nexus/3/{{ nexus_filename }}"
+    java_package: openjdk-17-jre-headless
+    java_home: "/usr/lib/jvm/java-17-openjdk-amd64"
+    nexus_install_base: /opt/nexus
+    nexus_data_dir: /opt/sonatype-work
+    nexus_user: nexus
+    nexus_group: nexus
 
   tasks:
 
-    # --------------------------
-    # 1. Update system
-    # --------------------------
-    - name: Update apt cache
-      apt:
-        update_cache: yes
+  # ------------------------------
+  # 1️⃣ Install Java
+  # ------------------------------
+  - name: Ensure Java 17 is installed
+    apt:
+      name: "{{ java_package }}"
+      state: present
+      update_cache: yes
 
-    # --------------------------
-    # 2. Install Java 11 (no recommends)
-    # --------------------------
-    - name: Install Java 11 (without recommends)
-      apt:
-        name: openjdk-11-jdk
-        state: present
-        install_recommends: no
-        update_cache: yes
+  # ------------------------------
+  # 2️⃣ Create nexus user/group
+  # ------------------------------
+  - name: Ensure nexus group exists
+    group:
+      name: "{{ nexus_group }}"
+      state: present
 
-    # --------------------------
-    # 3. Create Nexus user
-    # --------------------------
-    - name: Ensure nexus user exists
-      user:
-        name: "{{ nexus_user }}"
-        state: present
+  - name: Ensure nexus user exists
+    user:
+      name: "{{ nexus_user }}"
+      shell: /bin/bash
+      create_home: yes
+      state: present
+      group: "{{ nexus_group }}"
 
-    # --------------------------
-    # 4. Download Nexus
-    # --------------------------
-    - name: Download Nexus tarball
-      get_url:
-        url: "{{ nexus_url }}"
-        dest: "{{ nexus_tarball }}"
+  # ------------------------------
+  # 3️⃣ Create installation and data directories
+  # ------------------------------
+  - name: Create Nexus installation base
+    file:
+      path: "{{ nexus_install_base }}"
+      state: directory
+      owner: "{{ nexus_user }}"
+      group: "{{ nexus_group }}"
+      mode: '0755'
 
-    # --------------------------
-    # 5. Extract Nexus
-    # --------------------------
-    - name: Extract Nexus
-      unarchive:
-        src: "{{ nexus_tarball }}"
-        dest: "{{ nexus_install_dir }}/"
-        remote_src: yes
+  - name: Create Nexus data directory
+    file:
+      path: "{{ nexus_data_dir }}"
+      state: directory
+      owner: "{{ nexus_user }}"
+      group: "{{ nexus_group }}"
+      mode: '0755'
 
-    # --------------------------
-    # 6. Set permissions
-    # --------------------------
-    - name: Set Nexus ownership
-      file:
-        path: "{{ nexus_install_dir }}/nexus-{{ nexus_version }}"
-        owner: "{{ nexus_user }}"
-        group: "{{ nexus_user }}"
-        recurse: yes
+  # ------------------------------
+  # 4️⃣ Download and extract Nexus
+  # ------------------------------
+  - name: Download Nexus tarball
+    get_url:
+      url: "{{ nexus_download_url }}"
+      dest: "/tmp/{{ nexus_filename }}"
+      mode: '0644'
 
-    # --------------------------
-    # 7. Configure systemd service
-    # --------------------------
-    - name: Create systemd service for Nexus
-      copy:
-        dest: /etc/systemd/system/nexus.service
-        content: |
-          [Unit]
-          Description=Nexus Repository Manager
-          After=network.target
-          [Service]
-          Type=forking
-          User={{ nexus_user }}
-          ExecStart={{ nexus_install_dir }}/nexus-{{ nexus_version }}/bin/nexus start
-          ExecStop={{ nexus_install_dir }}/nexus-{{ nexus_version }}/bin/nexus stop
-          [Install]
-          WantedBy=multi-user.target
+  - name: Extract Nexus archive
+    unarchive:
+      src: "/tmp/{{ nexus_filename }}"
+      dest: /opt
+      remote_src: yes
+      creates: "/opt/nexus-{{ nexus_version }}"
 
-    # --------------------------
-    # 8. Enable and start Nexus service
-    # --------------------------
-    - name: Enable and start Nexus service
-      systemd:
-        name: nexus
-        enabled: yes
-        state: started
+  - name: Create symlink to current Nexus version
+    file:
+      src: "/opt/nexus-{{ nexus_version }}"
+      dest: "{{ nexus_install_base }}/current"
+      state: link
+      force: yes
+
+  # ------------------------------
+  # 5️⃣ Configure Nexus runtime
+  # ------------------------------
+  - name: Configure nexus.rc
+    copy:
+      dest: "{{ nexus_install_base }}/current/bin/nexus.rc"
+      content: "run_as_user={{ nexus_user }}"
+      owner: "{{ nexus_user }}"
+      group: "{{ nexus_group }}"
+      mode: '0644'
+
+  - name: Create nexus.vmoptions
+    copy:
+      dest: "{{ nexus_install_base }}/current/bin/nexus.vmoptions"
+      owner: "{{ nexus_user }}"
+      group: "{{ nexus_group }}"
+      mode: '0644'
+      content: |
+        -Xms512m
+        -Xmx1024m
+        -XX:MaxDirectMemorySize=1024m
+        -Djava.net.preferIPv4Stack=true
+        -Dkaraf.home=.
+        -Dkaraf.base=.
+        -Dkaraf.etc=etc/karaf
+        -Dkaraf.data={{ nexus_data_dir }}/nexus3
+        -Dkaraf.log={{ nexus_data_dir }}/nexus3/log
+        -Djava.io.tmpdir={{ nexus_data_dir }}/nexus3/tmp
+        -Dkaraf.startLocalConsole=false
+        -Djdk.tls.ephemeralDHKeySize=2048
+
+  # ------------------------------
+  # 5️⃣a Corrected Permissions
+  # ------------------------------
+  - name: Set permissions recursively for real Nexus directory
+    file:
+      path: "{{ nexus_install_base }}/nexus-{{ nexus_version }}"
+      owner: "{{ nexus_user }}"
+      group: "{{ nexus_group }}"
+      recurse: yes
+
+  - name: Ensure symlink ownership for current
+    file:
+      path: "{{ nexus_install_base }}/current"
+      owner: "{{ nexus_user }}"
+      group: "{{ nexus_group }}"
+
+  - name: Ensure data directory ownership
+    file:
+      path: "{{ nexus_data_dir }}"
+      owner: "{{ nexus_user }}"
+      group: "{{ nexus_group }}"
+      recurse: yes
+
+  # ------------------------------
+  # 6️⃣ Create systemd service
+  # ------------------------------
+  - name: Create systemd service for Nexus
+    copy:
+      dest: /etc/systemd/system/nexus.service
+      content: |
+        [Unit]
+        Description=Nexus Repository Manager
+        After=network.target
+
+        [Service]
+        Type=forking
+        LimitNOFILE=65536
+        User={{ nexus_user }}
+        Group={{ nexus_group }}
+        Environment=INSTALL4J_JAVA_HOME={{ java_home }}
+        ExecStart={{ nexus_install_base }}/current/bin/nexus start
+        ExecStop={{ nexus_install_base }}/current/bin/nexus stop
+        Restart=on-abort
+
+        [Install]
+        WantedBy=multi-user.target
+      mode: '0644'
+
+  - name: Reload systemd
+    systemd:
+      daemon_reload: yes
+
+  - name: Enable and start Nexus service
+    systemd:
+      name: nexus
+      enabled: yes
+      state: started
+
+  # ------------------------------
+  # 7️⃣ Wait for Nexus to be ready
+  # ------------------------------
+  - name: Wait for Nexus startup in log
+    wait_for:
+      path: "{{ nexus_data_dir }}/nexus3/log/nexus.log"
+      search_regex: "Started.*Nexus"
+      timeout: 600
+      state: present
+
+  - name: Wait for Nexus web interface
+    wait_for:
+      host: "{{ ansible_host }}"
+      port: 8081
+      timeout: 120
+      state: started
+
+  - name: Test Nexus web interface
+    uri:
+      url: "http://{{ ansible_host }}:8081"
+      return_content: yes
+    register: nexus_response
+
+  - name: Show Nexus test result
+    debug:
+      msg: "Nexus UI is reachable, HTTP status={{ nexus_response.status }}"
