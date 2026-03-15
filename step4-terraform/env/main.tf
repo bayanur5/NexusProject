@@ -10,7 +10,4 @@ module "nexus" {
   public_subnet_cidrs = var.public_subnet_cidrs
   instance_type       = var.instance_type
   key_name            = var.key_name
-
-  # Use existing Bastion SG
-  bastion_sg_id       = "sg-0dee6fb7195b27fbf"
 }
