@@ -1,29 +1,28 @@
 variable "region" {
+  description = "AWS region to deploy in"
   type        = string
-  description = "AWS region"
+  default     = "us-east-1"
 }
 
 variable "vpc_cidr" {
+  description = "CIDR block for VPC"
   type        = string
-  description = "VPC CIDR block"
+  default     = "10.0.0.0/16"
 }
 
 variable "public_subnet_cidrs" {
+  description = "Public subnets CIDR blocks"
   type        = list(string)
-  description = "List of public subnet CIDRs"
+  default     = ["10.0.1.0/24","10.0.2.0/24","10.0.3.0/24"]
 }
 
 variable "instance_type" {
-  type        = string
   description = "EC2 instance type"
+  type        = string
+  default     = "t3.medium"
 }
 
 variable "key_name" {
+  description = "SSH key name for EC2"
   type        = string
-  description = "EC2 key pair name"
-}
-
-variable "bastion_sg_id" {
-  type        = string
-  description = "Security Group ID of Bastion host"
 }
